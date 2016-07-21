@@ -1,0 +1,8 @@
+openssl s_client -showcerts -connect bitbucket.mypuma.net:443
+
+
+java c:\Users\yatin.verma\Desktop\SSLPoke mypuma.bitbucket.net 443 
+
+keytool -import -alias example -keystore  "C:\Program Files\Java\jdk1.8.0_25\jre\lib\security\cacerts" -file C:\Users\yatin.verma\Desktop\bitbucket.mypuma.crt
+
+keytool -import -alias example -keystore  "C:\Program Files\Java\jdk1.8.0_25\jre\lib\security\cacerts" -file C:\Users\yatin.verma\Desktop\bitbucket.mypuma.crt
