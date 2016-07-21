@@ -1,0 +1,182 @@
+package com.bolt.dashboard.model;
+
+import java.util.List;
+
+import org.springframework.data.mongodb.core.mapping.Document;
+
+@Document(collection = "SCM")
+public class SCMTool extends BaseModel {
+    protected String scType;
+    protected long timestamp;
+    protected String scmUrl;
+    protected String scmBranch;
+    protected String scmRevisionNumber;
+    protected String scmCommitLog;
+    protected long scmCommitTimestamp;
+    protected long numberOfChanges;
+    protected int additionInCommit;
+    protected int deletionInCommit;
+    protected int modificationsInCommit;
+    protected String scmCommiter;
+    protected List<String> scmFileName;
+    protected String insertionInCommit;
+    protected String deletioninfileInCommit;
+    public String getInsertionInCommit() {
+		return insertionInCommit;
+	}
+
+	public void setInsertionInCommit(String insertionInCommit) {
+		this.insertionInCommit = insertionInCommit;
+	}
+	
+    public String getDeletioninfileInCommit() {
+		return deletioninfileInCommit;
+	}
+
+	public void setDeletioninfileInCommit(String deletioninfileInCommit) {
+		this.deletioninfileInCommit = deletioninfileInCommit;
+	}
+
+	/**
+     * @return the scmCommiter
+     */
+    public String getScmCommiter() {
+        return scmCommiter;
+    }
+
+    /**
+     * @param scmCommiter the scmCommiter to set
+     */
+    public void setScmCommiter(String scmCommiter) {
+        this.scmCommiter = scmCommiter;
+    }
+
+    /**
+     * @return the scmFileName
+     */
+
+    public String getScType() {
+        return scType;
+    }
+
+    /**
+     * @return the scmFileName
+     */
+    public List<String> getScmFileName() {
+        return scmFileName;
+    }
+
+    /**
+     * @param scmFileName the scmFileName to set
+     */
+    public void setScmFileName(List<String> scmFileName) {
+        this.scmFileName = scmFileName;
+    }
+
+    public void setScType(String scType) {
+        this.scType = scType;
+    }
+
+    public long getTimestamp() {
+        return timestamp;
+    }
+
+    public void setTimestamp(long timestamp) {
+        this.timestamp = timestamp;
+    }
+
+    public String getScmUrl() {
+        return scmUrl;
+    }
+
+    public void setScmUrl(String scmUrl) {
+        this.scmUrl = scmUrl;
+    }
+
+    public String getScmBranch() {
+        return scmBranch;
+    }
+
+    public void setScmBranch(String scmBranch) {
+        this.scmBranch = scmBranch;
+    }
+
+    public String getScmRevisionNumber() {
+        return scmRevisionNumber;
+    }
+
+    public void setScmRevisionNumber(String scmRevisionNumber) {
+        this.scmRevisionNumber = scmRevisionNumber;
+    }
+
+    public String getScmCommitLog() {
+        return scmCommitLog;
+    }
+
+    public void setScmCommitLog(String scmCommitLog) {
+        this.scmCommitLog = scmCommitLog;
+    }
+
+   
+
+    public long getScmCommitTimestamp() {
+        return scmCommitTimestamp;
+    }
+
+    public void setScmCommitTimestamp(long scmCommitTimestamp) {
+        this.scmCommitTimestamp = scmCommitTimestamp;
+    }
+
+    public long getNumberOfChanges() {
+        return numberOfChanges;
+    }
+
+    public void setNumberOfChanges(long numberOfChanges) {
+        this.numberOfChanges = numberOfChanges;
+    }
+
+    /**
+     * @return the additionInCommit
+     */
+    public int getAdditionInCommit() {
+        return additionInCommit;
+    }
+
+    /**
+     * @param additionInCommit
+     *            the additionInCommit to set
+     */
+    public void setAdditionInCommit(int additionInCommit) {
+        this.additionInCommit = additionInCommit;
+    }
+
+    /**
+     * @return the deletionInCommit
+     */
+    public int getDeletionInCommit() {
+        return deletionInCommit;
+    }
+
+    /**
+     * @param deletionInCommit
+     *            the deletionInCommit to set
+     */
+    public void setDeletionInCommit(int deletionInCommit) {
+        this.deletionInCommit = deletionInCommit;
+    }
+
+    /**
+     * @return the modificationsInCommit
+     */
+    public int getModificationsInCommit() {
+        return modificationsInCommit;
+    }
+
+    /**
+     * @param modificationsInCommit the modificationsInCommit to set
+     */
+    public void setModificationsInCommit(int modificationsInCommit) {
+        this.modificationsInCommit = modificationsInCommit;
+    }
+
+}
