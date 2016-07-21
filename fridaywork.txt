@@ -1,0 +1,398 @@
+package com.bolt.dashboard.client;
+
+import java.math.BigDecimal;
+import java.net.MalformedURLException;
+import java.net.URL;
+import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
+import java.util.Calendar;
+import java.util.Date;
+import java.util.GregorianCalendar;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Set;
+import java.util.TimeZone;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
+
+import org.apache.commons.codec.binary.Base64;
+import org.apache.commons.logging.Log;
+import org.apache.commons.logging.LogFactory;
+import org.apache.http.ParseException;
+import org.joda.time.DateTime;
+import org.json.JSONArray;
+import org.json.JSONException;
+import org.json.JSONObject;
+import org.json.JSONTokener;
+import org.springframework.http.HttpEntity;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpMethod;
+import org.springframework.http.ResponseEntity;
+import org.springframework.http.client.HttpComponentsClientHttpRequestFactory;
+import org.springframework.stereotype.Component;
+import org.springframework.web.client.RestClientException;
+import org.springframework.web.client.RestOperations;
+import org.springframework.web.client.RestTemplate;
+
+import com.bolt.dashboard.exception.BitBucketExceptions;
+import com.bolt.dashboard.model.BuildToolMetric;
+import com.bolt.dashboard.model.FileDetails;
+import com.bolt.dashboard.model.SCMTool;
+import com.bolt.dashboard.repository.SCMToolRepository;
+
+/**
+ * @author yatin.verma
+ *
+ */
+@Component
+public class BitBucketClientImplementation implements BitBucketClient {
+
+	private static final String SEGMENT_API = "/api/v3/repos/";
+	private static final String PUBLIC_BITBUCKET_REPO_HOST = "api.bitbucket.org/2.0/repositories";
+	private static final String PUBLIC_BITBUCKET_HOST_NAME = "bitbucket.org";
+	private static final Log LOG = LogFactory.getLog(BitBucketClientImplementation.class);
+	private RestOperations rest;
+	private String statsURL;
+	private static long buildNumber;
+	SCMTool tool = null;
+	int sindex, eindex;
+	String changesinfile=null;
+
+	public BitBucketClientImplementation() {
+		this.rest = get();
+	}
+
+	@SuppressWarnings("unused")
+	private Boolean bool(JSONObject json, String key) {
+		Object obj = json.get(key);
+		return obj == null ? null : Boolean.valueOf(obj.toString());
+	}
+
+	@SuppressWarnings("unused")
+	private BigDecimal decimal(JSONObject json, String key) {
+		Object obj = json.get(key);
+		return obj == null ? null : new BigDecimal(obj.toString());
+	}
+
+	private RestOperations get() {
+		HttpComponentsClientHttpRequestFactory requestFactory = new HttpComponentsClientHttpRequestFactory();
+		requestFactory.setConnectTimeout(20000);
+		requestFactory.setReadTimeout(20000);
+		return new RestTemplate(requestFactory);
+	}
+
+	@SuppressWarnings("unused")
+	private Integer integer(JSONObject json, String key) {
+		Object obj = json.get(key);
+		return obj == null ? null : (Integer) obj;
+	}
+
+	private String str(JSONObject json, String key) {
+		Object obj = json.get(key);
+		return obj == null ? null : obj.toString();
+	}
+
+	public List<SCMTool> getCommits(String baseUrl, SCMToolRepository repo, boolean firstRun, String branch,
+			String getFirstRunHistoryDays, String user, String pass) throws BitBucketExceptions {
+
+		List<SCMTool> scmtool = new ArrayList<>();
+		Set<BuildToolMetric> metricSet = new HashSet<BuildToolMetric>();
+		String apiUrl = baseUrl;
+		LOG.info("API URL IS:" + apiUrl);
+
+		if (apiUrl.endsWith(".git")) {
+			apiUrl = apiUrl.substring(0, apiUrl.lastIndexOf(".git"));
+		}
+		URL url = null;
+		String hostName = "";
+		String protocol = "";
+		try {
+			url = new URL(apiUrl);
+			hostName = url.getHost();
+			protocol = url.getProtocol();
+		} catch (MalformedURLException e) {
+			LOG.error(e.getMessage());
+			throw new BitBucketExceptions();
+		}
+
+		String hostUrl = protocol + "://" + hostName + "/";
+		String repoName = apiUrl.substring(hostUrl.length(), apiUrl.length());
+
+		if (hostName.startsWith(PUBLIC_BITBUCKET_HOST_NAME)) {
+			apiUrl = protocol + "://" + PUBLIC_BITBUCKET_REPO_HOST + "/" + repoName;
+		} else {
+			apiUrl = protocol + "://" + hostName + SEGMENT_API + repoName;
+
+			LOG.debug("API URL IS:" + apiUrl);
+		}
+		statsURL = apiUrl + "/commits/";
+		Date dt = null;
+		if (firstRun) {
+			int firstRunDaysHistory = Integer.parseInt(getFirstRunHistoryDays);
+			if (firstRunDaysHistory > 0) {
+				dt = getDate(new Date(), -firstRunDaysHistory, 0);
+				LOG.info("Date:" + dt);
+
+			}
+		} else {
+			dt = getDate(new Date(), -1, 0);
+			LOG.info("Date:" + dt);
+
+		}
+		Calendar calendar = new GregorianCalendar();
+		TimeZone timeZone = calendar.getTimeZone();
+		Calendar cal = Calendar.getInstance(timeZone);
+		cal.setTime(dt);
+		String thisMoment = String.format("%tFT%<tRZ", cal);
+
+		String queryUrl = apiUrl.concat("/commits?sha=" + branch + "&since=" + thisMoment + "&pagelen=100");
+
+		LOG.info("queryUrl  :" + queryUrl);
+		boolean lastPage = false;
+		int pageNumber = 1;
+		String queryUrlPage = queryUrl;
+		while (!lastPage) {
+			try {
+				ResponseEntity<String> response = makeRestCall(queryUrlPage, user, pass);
+				JSONObject jsonObjectnew = parseAsArray(response);
+				JSONArray jsonArray = (JSONArray) jsonObjectnew.get("values");
+				
+				for (int i = 0; i < jsonArray.length(); i++) {
+					try {
+						
+						SCMTool commit;
+						int totalAdditions = 0;
+						int totalDeletions = 0;
+						int totalModifications = 0;
+						String noofDeletions = null, noofInsertions = null;
+						int indexOfInsertion, indexOfDeletion;
+						JSONObject patch = null;
+						String patchUrl = null;
+						JSONObject jsonObject = (JSONObject) jsonArray.get(i);
+						String revision = str(jsonObject, "hash");
+						String hashUrl = statsURL.concat(revision);
+						JSONObject author = (JSONObject) jsonObject.get("author");
+						String authornew[] = str(author, "raw").split(" ");
+						String authorname = authornew[0];
+						
+						String message = str(jsonObject, "message");
+						LOG.info(authornew);
+						LOG.info(message);
+						JSONObject links = (JSONObject) jsonObject.get("links");
+						try {
+							patch = (JSONObject) links.get("patch");
+						} catch (JSONException e) {
+							LOG.error("-- Merge is happening here --");
+							patchUrl = hashUrl;
+						}
+						if (patch != null) {
+							commit = new SCMTool();
+							patchUrl = str(patch, "href");
+							ResponseEntity<String> patchresponse = makeRestCall(patchUrl, user, pass);
+							int beginIndex = patchresponse.toString().indexOf("---");
+							int endIndex = patchresponse.toString().indexOf("diff --git");
+							int indexvalueofchangesline = patchresponse.toString().indexOf("changed,");
+							String checkedString = patchresponse.toString().substring(indexvalueofchangesline,
+									endIndex);
+							int y = beginIndex + 3;
+							if (checkedString.contains("insertions(+)") || checkedString.contains("deletions(-)")) {
+								indexOfInsertion = patchresponse.toString().indexOf("insertions(+)");
+								if (checkedString.contains("insertions(+)")) {
+
+									String noofinsertionsInFile[] = patchresponse.toString()
+											.substring(indexvalueofchangesline, indexOfInsertion).split(" ");
+									noofInsertions = noofinsertionsInFile[1];
+								}
+								if (checkedString.contains("deletions(-)")) {
+									if (checkedString.contains("insertions(+)")) {
+										indexOfDeletion = patchresponse.toString().indexOf("deletions(-)");
+										String noOfDeletionInFile[] = patchresponse.toString()
+												.substring(indexOfInsertion, indexOfDeletion).split(" ");
+										noofDeletions = noOfDeletionInFile[1];
+									} else {
+										indexOfDeletion = patchresponse.toString().indexOf("deletions(-)");
+										String noOfDeletionInNewFile[] = patchresponse.toString()
+												.substring(indexvalueofchangesline, indexOfDeletion).split(" ");
+										noofDeletions = noOfDeletionInNewFile[1];
+									}
+								}
+							}
+
+							String nameoffilechanged = patchresponse.toString().substring(y, indexvalueofchangesline);
+							String[] arrayofchangesfile = nameoffilechanged.split("\n");
+							int countlengthofchangedfiles = arrayofchangesfile.length - 1;
+							String value;
+							List<String> fileschanged = new ArrayList<String>();
+							for (int p = 1; p < countlengthofchangedfiles; p++) {
+								value = arrayofchangesfile[p];
+								String fileName = getFileName(value);
+								if (!(fileName == null))
+									fileschanged.add(fileName);
+								if(changesinfile.contains("+-")){
+									FileDetails file=new FileDetails();
+									int m = value.indexOf("|");
+									int n = value.indexOf("+");
+									String modificationinFile=value.substring(m+1, n);
+									file.setModificationinFile(modificationinFile);
+									file.setFilename(fileName);
+									//repo.save(file);
+									
+								}
+								else if(!(changesinfile.contains("+-"))){
+									if(changesinfile.contains("-")){
+									FileDetails file=new FileDetails();
+									int k = value.indexOf("|");
+									int j = value.indexOf("-");
+									String deletioninFile=value.substring(k+1, j);
+									file.setDeletioninFile(deletioninFile);
+									file.setFilename(fileName);
+									}
+									else
+									{
+										FileDetails file=new FileDetails();
+										int x = value.indexOf("|");
+										int z = value.indexOf("+");
+										String insertioninFile=value.substring(x+1, z);
+										file.setInsertioninFile(insertioninFile);
+										file.setFilename(fileName);
+									}
+								}	
+							}
+
+							String filechanges = patchresponse.toString().substring(y, endIndex);
+							Pattern p = Pattern.compile("create");
+							Pattern q = Pattern.compile("delete");
+							Matcher m = p.matcher(filechanges);
+							Matcher n = q.matcher(filechanges);
+							while (m.find()) {
+								totalAdditions++;
+							}
+							while (n.find()) {
+								totalDeletions++;
+							}
+							totalModifications = (arrayofchangesfile.length - 2) - (totalAdditions + totalDeletions);
+							long timestamp = new DateTime(str(jsonObject, "date")).getMillis();
+							
+							int totalChange = totalAdditions + totalDeletions + totalModifications;
+							commit.setScType("BITBUCKET");
+							commit.setTimestamp(System.currentTimeMillis());
+							commit.setScmRevisionNumber(revision);
+							commit.setScmUrl(patchUrl);
+							commit.setScmCommiter(authorname);
+							commit.setScmCommitLog(message);
+							commit.setScmCommitTimestamp(timestamp);
+							commit.setNumberOfChanges(totalChange);
+							commit.setModificationsInCommit(totalModifications);
+							commit.setAdditionInCommit(totalAdditions);
+							commit.setDeletionInCommit(totalDeletions);
+							commit.setScmFileName(fileschanged);
+							commit.setInsertionInCommit(noofInsertions);
+							commit.setDeletioninfileInCommit(noofDeletions);
+							repo.save(commit);
+							scmtool.add(commit);
+						} else {
+							commit = new SCMTool();
+							commit.setScmCommitLog(message);
+							repo.save(commit);
+							scmtool.add(commit);
+						}
+
+					} catch (RestClientException re) {
+						LOG.error(re.getMessage() + ":" + queryUrl);
+						continue;
+
+					}
+
+				}
+				if (jsonArray == null || jsonArray.length() == 0) {
+					lastPage = true;
+				} else {
+
+					pageNumber++;
+					queryUrlPage = queryUrl + "&page=" + pageNumber;
+				}
+
+			} catch (RestClientException re) {
+				LOG.error(re.getMessage() + ":" + queryUrl);
+				lastPage = true;
+				throw new BitBucketExceptions(re);
+
+			}
+		}
+		return scmtool;
+
+	}
+	
+	
+	
+
+	private String getFileName(String path) {
+		String className = null;
+		String fileName = null;
+		LOG.info("path  " + path);
+		String[] newpath = path.replaceAll("\\s+","").split("\\|");;
+		String[] fileSeparationString = null;
+		String[] classSeparationString = null;
+		changesinfile=newpath[newpath.length-1];
+		if (newpath[0].contains("/")) {
+			fileSeparationString = newpath[0].split(Pattern.quote("/"));
+			
+		} else {
+			return newpath[0];
+		}
+
+		if (!(fileSeparationString.length == 2)) {
+			className = fileSeparationString[fileSeparationString.length - 1];
+			LOG.info("file name " + className);
+			classSeparationString = className.split(Pattern.quote("."));
+			if ((classSeparationString.length == 2) && (!(classSeparationString[0] == " "))) {
+				fileName = className;
+			}
+		} else {
+			fileName = fileSeparationString[1];
+			return fileName;
+		}
+		return fileName;
+
+	}
+
+	private Date getDate(Date dateInstance, int offsetDays, int offsetMinutes) {
+		Calendar cal = Calendar.getInstance();
+		cal.setTime(dateInstance);
+		cal.add(Calendar.DATE, offsetDays);
+		cal.add(Calendar.MINUTE, offsetMinutes);
+		return cal.getTime();
+	}
+
+	private ResponseEntity<String> makeRestCall(String url, String userId, String password) {
+		// Basic Auth only.
+		if (!"".equals(userId) && !"".equals(password)) {
+			return get().exchange(url, HttpMethod.GET, new HttpEntity<>(createHeaders(userId, password)), String.class);
+
+		} else {
+			return get().exchange(url, HttpMethod.GET, null, String.class);
+		}
+
+	}
+
+	private JSONObject parseAsArray(ResponseEntity<String> response) {
+		try {
+			return (JSONObject) new JSONTokener(response.getBody()).nextValue();
+
+		} catch (ParseException pe) {
+			LOG.error(pe.getMessage());
+		}
+		return new JSONObject();
+	}
+
+	private HttpHeaders createHeaders(final String userId, final String password) {
+		String auth = userId + ":" + password;
+		byte[] encodedAuth = Base64.encodeBase64(auth.getBytes(StandardCharsets.US_ASCII));
+		String authHeader = "Basic " + new String(encodedAuth);
+
+		HttpHeaders headers = new HttpHeaders();
+		headers.set("Authorization", authHeader);
+		return headers;
+	}
+
+}
